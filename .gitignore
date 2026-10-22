@@ -1,13 +1,13 @@
 # данные и модели живут на Google Drive, не в git
-data/
-models/
-checkpoints/
+/data/
+/models/
+/checkpoints/
 *.pt
 *.bin
 *.safetensors
 
 # игрушечные результаты демо
-demo/
+/demo/
 
 # Python
 __pycache__/

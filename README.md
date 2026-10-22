@@ -6,10 +6,28 @@ NER (KazNERD), POS-теггинг и морфологический анализ
 ## Структура
 
 ```
+src/data/      чтение, очистка, сплиты, фиксация версий, EDA и графики
 src/eval/      единая оценка для всех 9 комбинаций (задача × метод)
+notebooks/     01_data_preparation_eda — подготовка данных и анализ
+docs/data.md   описание данных и предобработки
 scripts/       вспомогательные скрипты
 tests/         тесты (pytest -q)
-results/       метрики и итоговые таблицы
+```
+
+## Данные
+
+Исходные файлы лежат на Google Drive (не в git):
+
+```
+thesis/data/kaznerd/IOB2_{train,valid,test}.txt
+thesis/data/ud-ktb/kk_ktb-ud-{train,test}.conllu
+```
+
+Подготовка (результат — `thesis/data/processed/`, см. `docs/data.md`):
+
+```bash
+python -m src.data.prepare --raw /content/drive/MyDrive/thesis/data \
+                           --out /content/drive/MyDrive/thesis/data/processed
 ```
 
 ## Оценка
