@@ -1,0 +1,17 @@
+# данные и модели живут на Google Drive, не в git
+data/
+models/
+checkpoints/
+*.pt
+*.bin
+*.safetensors
+
+# игрушечные результаты демо
+demo/
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.venv/
