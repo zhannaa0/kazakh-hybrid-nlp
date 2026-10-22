@@ -1,12 +1,12 @@
 """Тесты модуля оценки. Запуск: pytest -q"""
 
+import random
+
 import pytest
-from seqeval.metrics import f1_score
-from seqeval.scheme import IOB2
 
 from src.eval.evaluate import evaluate_dir
 from src.eval.io import parse_name, read_predictions, write_predictions
-from src.eval.metrics import (ner_metrics, morph_metrics, pos_metrics,
+from src.eval.metrics import (ner_entities, ner_metrics, morph_metrics, pos_metrics,
                               score_from_stats, sentence_stats)
 from src.eval.significance import paired_bootstrap
 
@@ -29,7 +29,14 @@ def test_ner_partial_entity_is_wrong():
     assert m["precision"] == 0.0 and m["recall"] == 0.0
 
 
-def test_ner_bootstrap_stats_match_seqeval():
+def test_ner_entities_strict():
+    assert ner_entities(["B-PER", "I-PER", "O", "B-LOC"]) == {("PER", 0, 2), ("LOC", 3, 4)}
+    assert ner_entities(["O", "I-PER", "I-PER"]) == set()              # I- без B-
+    assert ner_entities(["B-PER", "I-LOC"]) == {("PER", 0, 1)}         # смена типа
+    assert ner_entities(["B-PER", "B-PER"]) == {("PER", 0, 1), ("PER", 1, 2)}
+
+
+def test_ner_bootstrap_stats_match_full_metric():
     sents = [
         sent(["B-PERSON", "I-PERSON", "O", "B-GPE"], ["B-PERSON", "I-PERSON", "O", "O"], 0),
         sent(["O", "B-ORG", "I-ORG"], ["O", "B-ORG", "I-ORG"], 1),
@@ -38,9 +45,36 @@ def test_ner_bootstrap_stats_match_seqeval():
     ]
     stats = sentence_stats(sents, "ner")
     a, b, c = (sum(x[k] for x in stats) for k in range(3))
-    expected = f1_score([s["gold"] for s in sents], [s["pred"] for s in sents],
-                        mode="strict", scheme=IOB2)
-    assert score_from_stats(a, b, c, "ner") == pytest.approx(expected)
+    assert score_from_stats(a, b, c, "ner") == pytest.approx(ner_metrics(sents)["f1"])
+
+
+def _random_tags(rng, n):
+    return [rng.choice(["O", "O", "O", "B-PER", "I-PER", "B-LOC", "I-LOC", "B-ORG", "I-ORG"])
+            for _ in range(n)]
+
+
+def test_ner_matches_seqeval_on_random_data():
+    """Сверка с эталонной библиотекой seqeval. Пропускается, если seqeval не установлен."""
+    seqeval_metrics = pytest.importorskip("seqeval.metrics")
+    from seqeval.scheme import IOB2
+
+    rng = random.Random(0)
+    sents = []
+    for i in range(300):
+        n = rng.randint(1, 12)
+        sents.append(sent(_random_tags(rng, n), _random_tags(rng, n), i))
+    y_true, y_pred = [s["gold"] for s in sents], [s["pred"] for s in sents]
+    ours = ner_metrics(sents)
+    report = seqeval_metrics.classification_report(
+        y_true, y_pred, mode="strict", scheme=IOB2, output_dict=True, zero_division=0)
+
+    assert ours["f1"] == pytest.approx(report["micro avg"]["f1-score"])
+    assert ours["precision"] == pytest.approx(report["micro avg"]["precision"])
+    assert ours["recall"] == pytest.approx(report["micro avg"]["recall"])
+    assert ours["macro_f1"] == pytest.approx(report["macro avg"]["f1-score"])
+    for label in ("PER", "LOC", "ORG"):
+        assert ours["per_class"][label]["f1"] == pytest.approx(report[label]["f1-score"])
+        assert ours["per_class"][label]["support"] == report[label]["support"]
 
 
 # ---------------- POS

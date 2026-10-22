@@ -8,8 +8,6 @@
 
 from collections import Counter, defaultdict
 
-from seqeval.metrics import classification_report as seq_report
-from seqeval.scheme import IOB2, Entities
 from sklearn.metrics import classification_report as sk_report
 
 MAIN_METRIC = {"ner": "f1", "pos": "accuracy", "morph": "exact_match"}
@@ -30,27 +28,47 @@ def _prf(tp, fp, fn):
 
 def ner_entities(tags):
     """Множество сущностей (тип, начало, конец) в strict-режиме IOB2.
-    Некорректная последовательность (I- без B-) сущностью не считается."""
-    # to_tuple() -> (номер_предложения, тип, начало, конец); номер нам не нужен
-    return {e.to_tuple()[1:] for e in Entities([list(tags)], IOB2).entities[0]}
+
+    Сущность = B-X и следующие за ним I-X того же типа; конец не включается.
+    Некорректная последовательность (I- без B-, или I-Y после B-X) сущностью
+    не считается — так же, как seqeval в mode="strict", scheme=IOB2.
+    """
+    entities = set()
+    start, etype = None, None
+    for i, tag in enumerate(list(tags) + ["O"]):      # "O" в конце закрывает последнюю сущность
+        prefix, _, label = tag.partition("-")
+        if start is not None and not (prefix == "I" and label == etype):
+            entities.add((etype, start, i))
+            start = None
+        if prefix == "B":
+            start, etype = i, label
+    return entities
 
 
 def ner_metrics(sentences):
-    y_true = [s["gold"] for s in sentences]
-    y_pred = [s["pred"] for s in sentences]
-    report = seq_report(y_true, y_pred, mode="strict", scheme=IOB2,
-                        output_dict=True, zero_division=0)
-    per_class = {
-        label: {"precision": v["precision"], "recall": v["recall"],
-                "f1": v["f1-score"], "support": int(v["support"])}
-        for label, v in report.items()
-        if label not in ("micro avg", "macro avg", "weighted avg")
-    }
+    tp, fp, fn = Counter(), Counter(), Counter()
+    for s in sentences:
+        G, P = ner_entities(s["gold"]), ner_entities(s["pred"])
+        for e in G & P:
+            tp[e[0]] += 1
+        for e in P - G:
+            fp[e[0]] += 1
+        for e in G - P:
+            fn[e[0]] += 1
+
+    per_class = {}
+    for label in sorted(set(tp) | set(fp) | set(fn)):
+        p, r, f = _prf(tp[label], fp[label], fn[label])
+        per_class[label] = {"precision": p, "recall": r, "f1": f,
+                            "support": tp[label] + fn[label]}
+
+    precision, recall, f1 = _prf(sum(tp.values()), sum(fp.values()), sum(fn.values()))
+    macro_f1 = (sum(v["f1"] for v in per_class.values()) / len(per_class)) if per_class else 0.0
     return {
-        "precision": report["micro avg"]["precision"],
-        "recall": report["micro avg"]["recall"],
-        "f1": report["micro avg"]["f1-score"],
-        "macro_f1": report["macro avg"]["f1-score"],
+        "precision": precision,
+        "recall": recall,
+        "f1": f1,                 # micro-F1 по сущностям — главная метрика NER
+        "macro_f1": macro_f1,
         "n_sentences": len(sentences),
         "per_class": per_class,
     }
