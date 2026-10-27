@@ -4,7 +4,7 @@
 
 | Датасет | Задачи | Источник | Версия | Формат |
 |---|---|---|---|---|
-| KazNERD | NER | https://github.com/IS2AI/KazNERD | файлы `IOB2_{train,valid,test}.txt`, SHA-256 в `manifest.json` | IOB2 (CoNLL 2002): «токен ТЕГ», пустая строка между предложениями |
+| KazNERD | NER | https://github.com/IS2AI/KazNERD | commit bd4333d (2025-01-15), SHA-256 в `src/data/collect.py` | IOB2 (CoNLL 2002): «токен ТЕГ», пустая строка между предложениями |
 | UD Kazakh-KTB | POS, морфология | https://github.com/UniversalDependencies/UD_Kazakh-KTB | релиз **r2.18** (данные не менялись с 2023 г.) | CoNLL-U, 10 колонок |
 
 ## Размеры
@@ -41,7 +41,7 @@ KazNERD: 25 типов сущностей. UD-KTB: 17 тегов UPOS, 18 мор
 | `text` | UD-KTB | предложение строкой |
 | `lemmas`, `upos`, `feats` | UD-KTB | колонки LEMMA, UPOS, FEATS из CoNLL-U; `_` = признаков нет |
 
-## Предобработка (`src/data/`, версия 1.0)
+## Предобработка (`src/data/`, версия 1.0; методичка 8.1 и 8.3)
 
 1. Unicode NFC.
 2. Латинские буквы-двойники внутри кириллических слов → кириллица: 76 исправлений
@@ -58,6 +58,19 @@ KazNERD: 25 типов сущностей. UD-KTB: 17 тегов UPOS, 18 мор
   стратифицированно по исходному тексту, seed = 42 (`splits.json`). Тексты из < 5
   предложений целиком в train. Официальный сплит сохранён в `udktb/official/`.
 
+## Сбор данных (методичка 7.5)
+
+Версии зафиксированы в `src/data/collect.py` (коммит KazNERD, тег UD r2.18) вместе с эталонными
+SHA-256 каждого файла. `python -m src.data.collect --raw <thesis>/data` скачивает недостающие файлы
+и останавливается, если хотя бы один файл отличается от зафиксированного.
+
+## Кодирование меток (методичка 8.2)
+
+`label_maps.json` строится только по train: 51 тег IOB2 (O + B/I для 25 типов), 17 UPOS,
+319 строк FEATS целиком и 18 категорий FEATS по отдельности. Метки слов переносятся на
+подслова трансформера по первому подслову (`encoding.align_to_subwords`). Для дисбаланса
+классов NER готовы веса (`encoding.class_weights`, по умолчанию 1/√n с ограничением 10).
+
 ## Фиксация версий
 
 `manifest.json` содержит SHA-256 исходных и выходных файлов, версию UD, параметры
@@ -70,3 +83,9 @@ KazNERD: 25 типов сущностей. UD-KTB: 17 тегов UPOS, 18 мор
   19 предложений с одинаковым текстом и разной разметкой.
 - Дисбаланс: CARDINAL + DATE + GPE ≈ 53% сущностей KazNERD; NON_HUMAN — 6 в train.
 - UD-KTB: 41–45% словоупотреблений dev/test отсутствуют в train (KazNERD — 4,8%).
+
+## Результаты этапа 1
+
+`python -m src.pipeline --thesis <thesis>` пишет в `thesis/outputs/stage1_data/`:
+`quality/` (сводка проверок, кандидаты в пропуски разметки, противоречия, пересечения train/test),
+`tables/` (17 таблиц CSV), `figures/` (10 рисунков), `report.md`, `report.html`, `pipeline_log.json`.

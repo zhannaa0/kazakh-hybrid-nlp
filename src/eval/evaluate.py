@@ -8,8 +8,11 @@
     # оценить один файл
     python -m src.eval.evaluate results/preds/ner_rule.jsonl
 
-    # значимо ли hybrid лучше neural?
+    # значимо ли hybrid лучше neural? (два файла)
     python -m src.eval.evaluate --compare results/preds/ner_neural.jsonl results/preds/ner_hybrid.jsonl
+
+    # все сравнения сразу: 3 пары методов × 3 задачи, все seed, поправка Холма
+    python -m src.eval.evaluate results/preds --significance
 
 Из ноутбука то же самое: from src.eval.evaluate import evaluate_dir, compare_files
 """
@@ -23,7 +26,7 @@ import pandas as pd
 
 from .io import METHODS, TASKS, parse_name, read_predictions
 from .metrics import MAIN_METRIC, evaluate
-from .significance import check_same_test_set, paired_bootstrap
+from .significance import check_same_test_set, holm, paired_bootstrap, paired_bootstrap_runs
 
 
 def evaluate_file(pred_path, out_dir="results"):
@@ -100,12 +103,42 @@ def compare_files(path_a, path_b, n_samples=10_000):
                             task_a, n_samples=n_samples)
 
 
+COMPARISONS = (("neural", "hybrid"), ("rule", "hybrid"), ("rule", "neural"))   # (A, B): лучше ли B, чем A
+
+
+def compare_all(pred_dir, out_dir="results", n_samples=10_000):
+    """Все сравнения методов внутри каждой задачи (все seed) + поправка Холма на всю таблицу."""
+    runs = {}
+    for path in sorted(Path(pred_dir).glob("*.jsonl")):
+        task, method, _ = parse_name(path)
+        runs.setdefault((task, method), []).append(read_predictions(path))
+    rows = []
+    for task in TASKS:
+        for a, b in COMPARISONS:
+            if (task, a) in runs and (task, b) in runs:
+                r = paired_bootstrap_runs(runs[(task, a)], runs[(task, b)], task, n_samples=n_samples)
+                rows.append({"task": task, "metric": MAIN_METRIC[task], "A": a, "B": b,
+                             "score_A": r["score_a"], "score_B": r["score_b"], "diff": r["diff"],
+                             "ci95_low": r["ci95"][0], "ci95_high": r["ci95"][1],
+                             "p": r["p_value"], "runs_A": r["n_runs_a"], "runs_B": r["n_runs_b"]})
+    if not rows:
+        raise ValueError("Нет пар методов для сравнения: нужны файлы хотя бы двух методов одной задачи")
+    table = pd.DataFrame(rows)
+    table["p_holm"] = holm(table["p"].tolist())
+    table["significant"] = table["p_holm"] < 0.05
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    table.to_csv(Path(out_dir) / "significance.csv", index=False)
+    return table
+
+
 def main():
     parser = argparse.ArgumentParser(description="Оценка предсказаний (3 задачи × 3 метода)")
     parser.add_argument("path", nargs="?", help="файл .jsonl или папка с ними")
     parser.add_argument("--out", default="results", help="куда сохранять метрики")
     parser.add_argument("--compare", nargs=2, metavar=("A", "B"), help="сравнить два файла")
     parser.add_argument("--samples", type=int, default=10_000, help="число bootstrap-выборок")
+    parser.add_argument("--significance", action="store_true",
+                        help="вместе с папкой: все попарные сравнения с поправкой Холма")
     args = parser.parse_args()
 
     if args.compare:
@@ -120,7 +153,13 @@ def main():
     elif args.path and Path(args.path).is_dir():
         table, _ = evaluate_dir(args.path, args.out)
         print(table.to_string())
-        print(f"\nСохранено в {args.out}/summary_3x3.csv и {args.out}/metrics/")
+        if args.significance:
+            sig = compare_all(args.path, args.out, args.samples)
+            show = sig.copy()
+            for c in ("score_A", "score_B", "diff", "ci95_low", "ci95_high"):
+                show[c] = (100 * show[c]).round(2)
+            print("\n" + show.round({"p": 4, "p_holm": 4}).to_string(index=False))
+        print(f"\nСохранено в {args.out}/: summary_3x3.csv, metrics/" + (", significance.csv" if args.significance else ""))
     elif args.path:
         r = evaluate_file(args.path, args.out)
         for k, v in r.items():

@@ -13,6 +13,7 @@
     udktb/{train,dev,test}.jsonl          — новый сплит 80/10/10
     udktb/official/{train,test}.jsonl     — официальный сплит (для справки)
     splits.json                           — какие id в каком сплите UD-KTB
+    label_maps.json                       — нумерация меток (по train) для всех методов
     cleaning_log.jsonl                    — каждое исправление: было → стало
     manifest.json                         — ФИКСАЦИЯ ВЕРСИЙ: хэши исходных и
                                             выходных файлов, версии, параметры, счётчики
@@ -20,7 +21,6 @@
 
 import argparse
 import copy
-import hashlib
 import json
 import subprocess
 from collections import Counter
@@ -28,6 +28,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .clean import clean_kaznerd, clean_ud
+from .collect import SOURCES, sha256
+from .encoding import build_label_maps, save_label_maps
 from .quality import conflicting_labels, duplicates_within, invalid_iob2, leakage
 from .readers import read_conllu, read_iob2
 from .splits import apply_split, stratified_split
@@ -36,14 +38,6 @@ KAZNERD_FILES = {"train": "IOB2_train.txt", "dev": "IOB2_valid.txt", "test": "IO
 UD_FILES = {"train": "kk_ktb-ud-train.conllu", "test": "kk_ktb-ud-test.conllu"}
 
 PREPROCESSING_VERSION = "1.0"   # повышайте, если меняются правила очистки или сплиты
-
-
-def sha256(path):
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 20), b""):
-            h.update(chunk)
-    return h.hexdigest()
 
 
 def write_jsonl(path, records):
@@ -90,7 +84,7 @@ def load_raw(raw_dir):
     return kaz, ud, dict(ud_stats)
 
 
-def prepare(raw_dir, out_dir, seed=42, ratios=(0.8, 0.1, 0.1), ud_version="r2.18"):
+def prepare(raw_dir, out_dir, seed=42, ratios=(0.8, 0.1, 0.1)):
     raw_dir, out_dir = Path(raw_dir), Path(out_dir)
     kaz_raw, ud_raw, ud_format_stats = load_raw(raw_dir)
     log = []
@@ -120,6 +114,10 @@ def prepare(raw_dir, out_dir, seed=42, ratios=(0.8, 0.1, 0.1), ud_version="r2.18
                              "ratios": ratios, "ids": split_ids}}, f, ensure_ascii=False, indent=1)
     write_jsonl(out_dir / "cleaning_log.jsonl", log)
 
+    # ---- Кодирование меток (табл. 8, этап 2): словари только по train
+    label_maps = build_label_maps(kaz["train"], ud_new["train"])
+    save_label_maps(label_maps, out_dir / "label_maps.json")
+
     # ---- Проверки качества (ничего не меняют)
     quality = {
         "kaznerd": {
@@ -142,17 +140,20 @@ def prepare(raw_dir, out_dir, seed=42, ratios=(0.8, 0.1, 0.1), ud_version="r2.18
         "preprocessing_version": PREPROCESSING_VERSION,
         "code_commit": _git_commit(),
         "sources": {
-            "kaznerd": {"origin": "https://github.com/IS2AI/KazNERD",
-                        "files": {fn: sha256(raw_dir / "kaznerd" / fn) for fn in KAZNERD_FILES.values()}},
-            "udktb": {"origin": "https://github.com/UniversalDependencies/UD_Kazakh-KTB",
-                      "version": ud_version,
-                      "files": {fn: sha256(raw_dir / "ud-ktb" / fn) for fn in UD_FILES.values()}},
+            key: {k: src[k] for k in ("name", "repo", "version", "license", "citation")} |
+                 {"files": {fn: sha256(raw_dir / key / fn) for fn in src["files"]},
+                  "matches_pinned_version": all(sha256(raw_dir / key / fn) == h
+                                                for fn, h in src["files"].items())}
+            for key, src in SOURCES.items()
         },
         "params": {"seed": seed, "ud_ratios": ratios},
         "counts": {"kaznerd": _counts(kaz, "ner"),
                    "udktb": _counts(ud_new, "upos"),
                    "udktb_official": _counts(ud, "upos")},
         "cleaning": dict(Counter(r["rule"] for r in log)),
+        "label_space": {"ner_tags": len(label_maps["ner"]), "upos": len(label_maps["upos"]),
+                        "feats_whole": len(label_maps["feats_whole"]),
+                        "feat_categories": len(label_maps["feat_values"])},
         "quality": quality,
         "outputs": {str(p.relative_to(out_dir)): sha256(p)
                     for p in sorted(out_dir.rglob("*.jsonl")) if p.name != "cleaning_log.jsonl"},
@@ -167,10 +168,9 @@ def main():
     p.add_argument("--raw", required=True, help="папка с kaznerd/ и ud-ktb/")
     p.add_argument("--out", required=True, help="куда сохранить подготовленные данные")
     p.add_argument("--seed", type=int, default=42)
-    p.add_argument("--ud-version", default="r2.18", help="тег релиза UD (для манифеста)")
     a = p.parse_args()
 
-    m = prepare(a.raw, a.out, seed=a.seed, ud_version=a.ud_version)
+    m = prepare(a.raw, a.out, seed=a.seed)
     print("Готово:", a.out)
     for ds in ("kaznerd", "udktb", "udktb_official"):
         print(f"  {ds:15}", {sp: c["sentences"] for sp, c in m["counts"][ds].items()})
