@@ -28,6 +28,7 @@ NER (KazNERD), POS-теггинг и морфологический анализ
 | 8.9 Secrecy and confidentiality | `.gitignore`, Colab Secrets, `DATA_LICENSES.md` | данные вне git, лицензии |
 | 8.10 Documentation | `manifest.json`, `cleaning_log.jsonl`, `pipeline_log.json` | воспроизводимость |
 | 8.11 Publication of results | репозиторий после защиты | |
+| **3.12 Description of methods and models** | `docs/methods.md`, `src/rules`, `src/neural`, `src/hybrid` | формулы, обоснование, допущения |
 
 ## Структура
 
@@ -36,8 +37,12 @@ src/pipeline.py   этап 1 целиком: шаги методички по п
 src/report.py     сборка отчёта (Markdown + HTML)
 src/data/         сбор, чтение, проверка качества, очистка, кодирование, сплиты, EDA, графики
 src/eval/         единая оценка 9 комбинаций, значимость (bootstrap + Холм), разбивка ошибок
-notebooks/        01_stage1_data — тот же этап 1 по шагам, с результатами
+src/rules/        rule-based: морфологический анализатор (POS + FEATS), NER-шаблоны и газеттир
+src/neural/       нейросеть: общий трансформер + головы задач (обучение в Colab на GPU)
+src/hybrid/       гибрид: нейросеть → коррекция правилами, подбор параметров на dev
+notebooks/        01_stage1_data — этап 1 (данные); 02_methods — этап 2 (методы)
 docs/data.md      описание данных и предобработки
+docs/methods.md   описание методов и моделей (3.12): формулы, обоснование, допущения
 tests/            pytest -q
 ```
 
@@ -57,6 +62,17 @@ python -m src.pipeline --thesis /content/drive/MyDrive/thesis            # --dow
 ```
 
 Подготовленные данные — в `thesis/data/processed/` (см. `docs/data.md`).
+
+## Этап 2: методы
+
+```bash
+python -m src.rules.run    --thesis <thesis>                 # rule-based, CPU, ~15 с
+python -m src.neural.train --thesis <thesis> --task ud  --seed 13   # POS + FEATS, GPU
+python -m src.neural.train --thesis <thesis> --task ner --seed 13   # NER, GPU (~40 мин на T4)
+python -m src.hybrid.run   --thesis <thesis> --seed 13       # гибрид: подбор на dev, применение к test
+```
+
+Предсказания — в `thesis/outputs/preds/{dev,test}/`. В Colab всё это — `notebooks/02_methods.ipynb`.
 
 ## Оценка моделей
 

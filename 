@@ -1,0 +1,31 @@
+Добавлен EDA по методичке
+
+# Conflicts:
+#	notebooks/01_data_preparation_eda.ipynb
+
+# Please enter the commit message for your changes. Lines starting
+# with '#' will be ignored, and an empty message aborts the commit.
+#
+# interactive rebase in progress; onto e9230f2
+# Last command done (1 command done):
+#    pick 20c6b0e # Добавлен EDA по методичке
+# No commands remaining.
+# You are currently rebasing branch 'main' on 'e9230f2'.
+#
+# Changes to be committed:
+#	new file:   .github/workflows/tests.yml
+#	new file:   DATA_LICENSES.md
+#	modified:   README.md
+#	modified:   docs/data.md
+#	deleted:    notebooks/01_data_preparation_eda.ipynb
+#	new file:   notebooks/01_stage1_data.ipynb
+#	new file:   src/data/collect.py
+#	new file:   src/data/encoding.py
+#	modified:   src/data/prepare.py
+#	new file:   src/eval/breakdown.py
+#	modified:   src/eval/evaluate.py
+#	modified:   src/eval/significance.py
+#	new file:   src/pipeline.py
+#	new file:   src/report.py
+#	new file:   tests/test_stage1.py
+#
